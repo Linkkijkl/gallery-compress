@@ -6,7 +6,6 @@
 # get recompressed and the original images removed. 
 
 # Images larger than this will get converted
-
 MAX_FILE_SIZE="2M"
 
 if [ "$#" -lt "1" ]
@@ -25,8 +24,8 @@ fi
 oifs="$IFS"
 IFS=$'\n'
 
-# Spawn max number of threads / 2 tasks
-N=$(( $(nproc)/2 ))
+# Spawn (number of threads / 4) tasks
+N=$(( $(nproc)/4 ))
 
 # Walk files
 for file in $(find "$1" -type f)
@@ -56,14 +55,12 @@ do
 		pushd "$dir" > /dev/null
 
 		echo "Converting $file ..."
-		with_extension="$name.webp"
+		with_extension="$name.avif"
 		
-		magick "$filename" -quality 50 -define webp:image-hint=picture \
-			-define webp:method=6 -define webp:thread-level=0 \
-			-auto-orient "$with_extension" \
-		&& exiftool -tagsFromFile "$file" -ext webp \
-			-overwrite_original "$with_extension" \
-		&& rm "$file" \
+		magick "$filename" -quality 50 -auto-orient "$with_extension" \
+		&& exiftool "$with_extension" "-filecreatedate<datetimeoriginal" \
+			"-filemodifydate<datetimeoriginal" &> /dev/null \
+		&& rm "$filename" \
 
 		popd > /dev/null
 	) &
