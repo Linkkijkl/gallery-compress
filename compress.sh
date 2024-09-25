@@ -24,8 +24,8 @@ fi
 oifs="$IFS"
 IFS=$'\n'
 
-# Spawn (number of threads / 4) tasks
-N=$(( $(nproc)/4 ))
+# Spawn (number of threads / 2) tasks
+N=$(( $(nproc)/2 ))
 
 # Walk files
 for file in $(find "$1" -type f)
@@ -52,17 +52,22 @@ do
 		fi
 	
 		# Convert, transfer metadata and remove the original file
-		pushd "$dir" > /dev/null
+		pushd "$dir" |:
 
 		echo "Converting $file ..."
-		with_extension="$name.avif"
-		
-		magick "$filename" -quality 50 -auto-orient "$with_extension" \
+		with_extension="$name.webp"
+
+		magick "$filename" -quality 50 -define webp:image-hint=picture \
+			-define webp:method=6 -define webp:thread-level=0 \
+			-auto-orient "$with_extension" \
 		&& exiftool "$with_extension" "-filecreatedate<datetimeoriginal" \
-			"-filemodifydate<datetimeoriginal" &> /dev/null \
+			"-filemodifydate<datetimeoriginal" |: \
+		&& touch -d $( \
+			exiftool -d "%r %a, %B %e, %Y" -DateTimeOriginal -S -s "$filename" \
+		) "$with_extension" \
 		&& rm "$filename" \
 
-		popd > /dev/null
+		popd |: 
 	) &
 
 	# Allow to execute up to $N jobs in parallel
