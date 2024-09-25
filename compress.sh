@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# This script converts big files into smaller ones using imagemagic.
+# This script converts big files into more efficently compressed formats.
 #
 # Have backups of directories this script processes, as they will
 # get recompressed and the original images removed. 
 
 # Images larger than this will get converted
-MAX_FILE_SIZE="2M"
+max_file_size=$(numfmt --from auto "2M")
 
 if [ "$#" -lt "1" ]
 then
@@ -14,72 +14,56 @@ then
     exit 1
 fi
 
-! type magick > /dev/null \
+! type magick |: \
 	&& >&2 echo "This script requires imagemagic to work!" && exit 1
-! type exiftool > /dev/null \
+! type exiftool |: \
 	&& >&2 echo "This script requires exiftool to work!" && exit 1
-
-# Set terminating character temporarily to only newline, for
-# walking over file paths with spaces
-oifs="$IFS"
-IFS=$'\n'
 
 # Spawn (number of threads / 2) tasks
 N=$(( $(nproc)/2 ))
 
-# Walk files
-for file in $(find "$1" -type f)
+# Walk over files in target directory
+while IFS= read -r -d '' input_file
 do
 	# Spawn jobs
 	(
-		dir=$(dirname "$file")
-		filename=$(basename "$file")
-		extension="${filename##*.}"
-		name=$(basename "$file" ."$extension") # Removes extension from filename
-	
 		# Convert only if file type is desired to be converted
+		extension="${input_file##*.}"
 		if ! [[ "${extension,,}" =~ jpg|jpeg|png ]]
 		then
 			exit
 		fi
 	
-		# Don't convert files which are smaller than set treshold
-		maxsize=$(numfmt --from auto "$MAX_FILE_SIZE")
-		realsize=$(wc -c < "$file")
-		if [ "$realsize" -lt "$maxsize" ]
+		# Don't convert files which are smaller in size than set treshold
+		realsize=$(wc -c < "$input_file")
+		if [ "$realsize" -lt "$max_file_size" ]
 		then
 			exit
 		fi
 	
-		# Convert, transfer metadata and remove the original file
-		pushd "$dir" |:
+		echo "Converting $input_file ..."
+		input_file_without_extension="$(
+			dirname "$input_file")/$(basename "$input_file" ."$extension"
+		)"
+		output_file="$input_file_without_extension".webp
 
-		echo "Converting $file ..."
-		with_extension="$name.webp"
-
-		magick "$filename" -quality 50 -define webp:image-hint=picture \
+		# Convert, transfer file modification date metadata, and remove the original file
+		magick "$input_file" -quality 50 -define webp:image-hint=picture \
 			-define webp:method=6 -define webp:thread-level=0 \
-			-auto-orient "$with_extension" \
-		&& exiftool "$with_extension" "-filecreatedate<datetimeoriginal" \
-			"-filemodifydate<datetimeoriginal" |: \
-		&& touch -d $( \
-			exiftool -d "%r %a, %B %e, %Y" -DateTimeOriginal -S -s "$filename" \
-		) "$with_extension" \
-		&& rm "$filename" \
-
-		popd |: 
+			-auto-orient "$output_file" \
+		&& touch -d "$( \
+			exiftool -d "%r %a, %B %e, %Y" -DateTimeOriginal -S -s "$input_file" \
+		)" "$output_file" \
+		&& rm "$input_file"
 	) &
 
 	# Allow to execute up to $N jobs in parallel
-	if [[ $(jobs -r -p | wc -l) -ge $N ]]
+	if [ "$(jobs -r -p | wc -l)" -ge $N ]
 	then
 		wait -n
 	fi
-done
+
+done < <(find "$1" -type f -print0)
 
 # Wait for jobs to terminate
 wait
-
-# Restore terminating characters
-IFS=oifs
-
